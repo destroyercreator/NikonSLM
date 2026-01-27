@@ -1,0 +1,63 @@
+project:
+  country: Canada
+  default_language: en
+  output_excel: data/companies.xlsx
+  max_results_per_query: 10
+  user_agent: "LPBF-Tracker/0.1 (+https://example.com)"
+
+search:
+  provider: "serpapi" # options: serpapi, bing
+  serpapi:
+    api_key_env: "SERPAPI_API_KEY"
+    engine: "google"
+  bing:
+    api_key_env: "BING_API_KEY"
+    endpoint: "https://api.bing.microsoft.com/v7.0/search"
+
+queries:
+  base_templates:
+    - "{industry} Canada manufacturer {application}"
+    - "{industry} Canada company {application}"
+    - "{industry} Canada supplier {application}"
+  industries:
+    - aerospace
+    - defence
+    - medical
+    - energy
+    - industrial tooling
+    - semiconductor vacuum
+    - chemical processing
+    - robotics
+    - architecture design
+    - high performance manufacturing
+  applications:
+    - "complex internal geometries"
+    - "heat exchanger"
+    - "manifold"
+    - "aerospace bracket"
+    - "turbomachinery"
+    - "implant"
+    - "conformal cooling"
+    - "lattice structure"
+
+classification:
+  min_confidence: 0.5
+  keyword_rules_path: "config/industry_keywords.yaml"
+  use_llm: false
+  llm:
+    api_key_env: "OPENAI_API_KEY"
+    endpoint: "https://api.openai.com/v1/chat/completions"
+    model: "gpt-4o-mini"
+    max_tokens: 200
+
+contact_enrichment:
+  max_pages_per_company: 3
+  contact_page_keywords:
+    - "contact"
+    - "about"
+    - "support"
+    - "locations"
+    - "offices"
+
+crm:
+  fuzzy_match_threshold: 90
