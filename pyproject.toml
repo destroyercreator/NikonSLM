@@ -1,0 +1,24 @@
+[project]
+name = "lpbf-tracker"
+version = "0.1.0"
+description = "Repeatable discovery and tracking tool for Canadian LPBF adoption candidates."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "beautifulsoup4>=4.12.3",
+  "pandas>=2.2.2",
+  "pydantic>=2.7.4",
+  "python-dotenv>=1.0.1",
+  "pyyaml>=6.0.1",
+  "rapidfuzz>=3.9.6",
+  "requests>=2.32.3",
+  "tldextract>=5.1.2",
+  "openpyxl>=3.1.5",
+]
+
+[project.scripts]
+lpbf-tracker = "lpbf_tracker.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

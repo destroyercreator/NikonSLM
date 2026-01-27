@@ -1,0 +1,85 @@
+industries:
+  aerospace:
+    keywords:
+      - aerospace
+      - aircraft
+      - avionics
+      - jet
+      - turbine
+      - flight
+      - airframe
+  defence:
+    keywords:
+      - defence
+      - defense
+      - military
+      - tactical
+      - weapons
+      - armored
+  medical:
+    keywords:
+      - medical
+      - healthcare
+      - surgical
+      - implant
+      - orthopedic
+      - dental
+  energy:
+    keywords:
+      - energy
+      - power generation
+      - turbine
+      - oil
+      - gas
+      - nuclear
+      - renewable
+  industrial tooling:
+    keywords:
+      - tooling
+      - mold
+      - die
+      - fixture
+      - jig
+      - machine shop
+  semiconductor/vacuum:
+    keywords:
+      - semiconductor
+      - vacuum
+      - wafer
+      - lithography
+      - cleanroom
+  chemical processing:
+    keywords:
+      - chemical
+      - process plant
+      - corrosion
+      - refinery
+      - reactor
+  robotics:
+    keywords:
+      - robotics
+      - automation
+      - robot
+      - mechatronics
+  architecture/design:
+    keywords:
+      - architecture
+      - design studio
+      - industrial design
+      - product design
+  high-performance manufacturing:
+    keywords:
+      - high performance
+      - precision manufacturing
+      - advanced manufacturing
+      - additive
+      - 3d printing
+applications:
+  - "complex internal geometries"
+  - "heat exchanger"
+  - "manifold"
+  - "aerospace bracket"
+  - "turbomachinery"
+  - "implant"
+  - "conformal cooling"
+  - "lattice structure"
