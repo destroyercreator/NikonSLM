@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,6 +20,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     load_dotenv()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
     config = load_config(args.config)
     run_pipeline(config)
 
