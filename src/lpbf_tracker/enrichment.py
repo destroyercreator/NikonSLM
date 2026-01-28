@@ -54,16 +54,20 @@ def build_session(user_agent: str) -> requests.Session:
 
 def fetch_page(session: requests.Session, url: str) -> str:
     retry_after_seconds = 0
-    for attempt in range(2):
+    max_attempts = 3
+    for attempt in range(max_attempts):
         if retry_after_seconds:
             time.sleep(retry_after_seconds)
         try:
             response = session.get(url, timeout=(10, 30))
         except requests.RequestException:
             return ""
-        if response.status_code == 429 and attempt == 0:
+        if response.status_code == 429:
             retry_after_header = response.headers.get("Retry-After", "").strip()
-            retry_after_seconds = min(int(retry_after_header), 30) if retry_after_header.isdigit() else 1
+            if retry_after_header.isdigit():
+                retry_after_seconds = min(int(retry_after_header), 30)
+            else:
+                retry_after_seconds = min(2**attempt, 30)
             continue
         if not response.ok:
             return ""
