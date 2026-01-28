@@ -6,7 +6,7 @@ This repository contains a Python-based, repeatable research workflow that disco
 
 ### Features
 
-- **Repeatable search program** using SerpAPI or Bing Web Search.
+- **Repeatable search program** using SerpAPI, Bing Web Search, or Brave Search.
 - **Structured queries** tied to LPBF applications (heat exchangers, manifolds, implants, etc.).
 - **Company-level evidence** with snippets and source URLs.
 - **Deterministic industry classification** with optional LLM refinement.
@@ -26,6 +26,7 @@ Set at least one search API key in `.env`:
 
 - `SERPAPI_API_KEY` (SerpAPI)
 - `BING_API_KEY` (Azure Bing Search)
+- `BRAVE_API_KEY` (Brave Search API)
 
 Optional LLM classification:
 
@@ -48,3 +49,4 @@ The CRM output is written to `data/companies.xlsx` by default.
 - The pipeline does not scrape LinkedIn or gated platforms.
 - Contact extraction only uses company-owned websites and respects robots.txt.
 - Accuracy and traceability are prioritized over volume.
+- Brave Search provides a free tier; configure it by setting `search.provider` to `brave` in `config/config.yaml`.

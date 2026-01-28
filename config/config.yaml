@@ -6,13 +6,16 @@ project:
   user_agent: "LPBF-Tracker/0.1 (+https://example.com)"
 
 search:
-  provider: "serpapi" # options: serpapi, bing
+  provider: "serpapi" # options: serpapi, bing, brave
   serpapi:
     api_key_env: "SERPAPI_API_KEY"
     engine: "google"
   bing:
     api_key_env: "BING_API_KEY"
     endpoint: "https://api.bing.microsoft.com/v7.0/search"
+  brave:
+    api_key_env: "BRAVE_API_KEY"
+    endpoint: "https://api.search.brave.com/res/v1/web/search"
 
 queries:
   base_templates:

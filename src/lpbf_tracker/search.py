@@ -75,6 +75,32 @@ class BingProvider(SearchProvider):
         return results
 
 
+class BraveProvider(SearchProvider):
+    def __init__(self, api_key: str, endpoint: str) -> None:
+        self.api_key = api_key
+        self.endpoint = endpoint
+
+    def search(self, query: str, max_results: int) -> list[SearchResult]:
+        response = requests.get(
+            self.endpoint,
+            headers={"X-Subscription-Token": self.api_key},
+            params={"q": query, "count": max_results},
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = []
+        for item in payload.get("web", {}).get("results", []):
+            results.append(
+                SearchResult(
+                    title=item.get("title", ""),
+                    snippet=item.get("description", ""),
+                    url=item.get("url", ""),
+                )
+            )
+        return results
+
+
 def build_provider(settings: dict) -> SearchProvider:
     provider = settings.get("provider", "serpapi")
     if provider == "serpapi":
@@ -89,6 +115,12 @@ def build_provider(settings: dict) -> SearchProvider:
         if not api_key:
             raise ValueError(f"Missing API key in env var {api_key_env}")
         return BingProvider(api_key=api_key, endpoint=settings["bing"]["endpoint"])
+    if provider == "brave":
+        api_key_env = settings["brave"]["api_key_env"]
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            raise ValueError(f"Missing API key in env var {api_key_env}")
+        return BraveProvider(api_key=api_key, endpoint=settings["brave"]["endpoint"])
     raise ValueError(f"Unsupported provider: {provider}")
 
 
