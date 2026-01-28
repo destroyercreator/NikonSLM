@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import time
 from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
@@ -52,23 +51,19 @@ def build_session(user_agent: str) -> requests.Session:
     return session
 
 
+def should_skip_rate_limit(response: requests.Response) -> bool:
+    return response.status_code == 429
+
+
 def fetch_page(session: requests.Session, url: str) -> str:
-    retry_after_seconds = 0
     max_attempts = 3
     for attempt in range(max_attempts):
-        if retry_after_seconds:
-            time.sleep(retry_after_seconds)
         try:
             response = session.get(url, timeout=(10, 30))
         except requests.RequestException:
             return ""
-        if response.status_code == 429:
-            retry_after_header = response.headers.get("Retry-After", "").strip()
-            if retry_after_header.isdigit():
-                retry_after_seconds = min(int(retry_after_header), 30)
-            else:
-                retry_after_seconds = min(2**attempt, 30)
-            continue
+        if should_skip_rate_limit(response):
+            return ""
         if not response.ok:
             return ""
         return response.text
