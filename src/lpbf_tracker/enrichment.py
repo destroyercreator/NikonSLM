@@ -7,6 +7,8 @@ from urllib.robotparser import RobotFileParser
 
 import re
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 
 
@@ -34,9 +36,28 @@ def is_allowed_by_robots(url: str, user_agent: str) -> bool:
     return parser.can_fetch(user_agent, url)
 
 
-def fetch_page(url: str, user_agent: str) -> str:
-    response = requests.get(url, headers={"User-Agent": user_agent}, timeout=30)
-    response.raise_for_status()
+def build_session(user_agent: str) -> requests.Session:
+    session = requests.Session()
+    session.headers.update({"User-Agent": user_agent})
+    retry = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def fetch_page(session: requests.Session, url: str) -> str:
+    try:
+        response = session.get(url, timeout=(10, 30))
+        response.raise_for_status()
+    except requests.RequestException:
+        return ""
     return response.text
 
 
@@ -77,7 +98,10 @@ def enrich_contacts(
 ) -> ContactInfo:
     if not is_allowed_by_robots(base_url, user_agent):
         return ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
-    homepage_html = fetch_page(base_url, user_agent)
+    session = build_session(user_agent)
+    homepage_html = fetch_page(session, base_url)
+    if not homepage_html:
+        return ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
     emails, phones = extract_contacts(homepage_html)
     contact_links = find_contact_links(homepage_html, base_url, contact_keywords)
     contact_page = contact_links[0] if contact_links else None
@@ -85,11 +109,12 @@ def enrich_contacts(
     pages_checked = 1
     if contact_page and pages_checked < max_pages:
         if is_allowed_by_robots(contact_page, user_agent):
-            contact_html = fetch_page(contact_page, user_agent)
-            more_emails, more_phones = extract_contacts(contact_html)
-            emails = sorted(set(emails + more_emails))
-            phones = sorted(set(phones + more_phones))
-            staff = extract_staff(contact_html)
+            contact_html = fetch_page(session, contact_page)
+            if contact_html:
+                more_emails, more_phones = extract_contacts(contact_html)
+                emails = sorted(set(emails + more_emails))
+                phones = sorted(set(phones + more_phones))
+                staff = extract_staff(contact_html)
     return ContactInfo(
         emails=emails,
         phones=phones,
