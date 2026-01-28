@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import re
+import time
 from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-
-import re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -53,12 +53,22 @@ def build_session(user_agent: str) -> requests.Session:
 
 
 def fetch_page(session: requests.Session, url: str) -> str:
-    try:
-        response = session.get(url, timeout=(10, 30))
-        response.raise_for_status()
-    except requests.RequestException:
-        return ""
-    return response.text
+    retry_after_seconds = 0
+    for attempt in range(2):
+        if retry_after_seconds:
+            time.sleep(retry_after_seconds)
+        try:
+            response = session.get(url, timeout=(10, 30))
+        except requests.RequestException:
+            return ""
+        if response.status_code == 429 and attempt == 0:
+            retry_after_header = response.headers.get("Retry-After", "").strip()
+            retry_after_seconds = min(int(retry_after_header), 30) if retry_after_header.isdigit() else 1
+            continue
+        if not response.ok:
+            return ""
+        return response.text
+    return ""
 
 
 def extract_contacts(html: str) -> tuple[list[str], list[str]]:
