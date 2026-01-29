@@ -15,16 +15,56 @@ class ClassificationResult:
 
 def keyword_classify(text: str, keyword_rules: dict) -> ClassificationResult:
     text_lower = text.lower()
-    hits = []
+    industry_hits: dict[str, list[tuple[str, int]]] = {}
+    total_hit_score = 0
     for industry, payload in keyword_rules["industries"].items():
         keywords = payload.get("keywords", [])
+        matches: list[tuple[str, int]] = []
         for keyword in keywords:
-            if keyword in text_lower:
-                hits.append(industry)
-                break
-    industries = sorted(set(hits))
-    confidence = min(1.0, 0.4 + 0.1 * len(industries)) if industries else 0.0
-    rationale = "Keyword match" if industries else "No keyword match"
+            keyword_lower = keyword.lower()
+            count = text_lower.count(keyword_lower)
+            if count:
+                matches.append((keyword, count))
+                total_hit_score += count
+        if matches:
+            industry_hits[industry] = matches
+
+    industries = sorted(industry_hits.keys())
+    lpbf_anchors = keyword_rules.get(
+        "lpbf_anchors",
+        [
+            "lpbf",
+            "laser powder bed fusion",
+            "additive manufacturing",
+            "3d printing",
+            "metal 3d printing",
+        ],
+    )
+    anchor_hits = [term for term in lpbf_anchors if term in text_lower]
+    if industries:
+        hit_strength = min(1.0, total_hit_score / 6)
+        industry_strength = min(1.0, len(industries) / 4)
+        anchor_bonus = 0.15 if anchor_hits else 0.0
+        confidence = min(1.0, 0.2 + 0.5 * hit_strength + 0.15 * industry_strength + anchor_bonus)
+    else:
+        confidence = 0.0
+
+    if industries:
+        per_industry = []
+        for industry in industries:
+            matches = []
+            for keyword, count in industry_hits[industry]:
+                if count > 1:
+                    matches.append(f"{keyword} x{count}")
+                else:
+                    matches.append(keyword)
+            per_industry.append(f"{industry} ({', '.join(matches)})")
+        rationale_parts = [f"Keyword matches: {', '.join(per_industry)}"]
+        if anchor_hits:
+            rationale_parts.append(f"LPBF anchors: {', '.join(anchor_hits)}")
+        rationale = ". ".join(rationale_parts)
+    else:
+        rationale = "No keyword match"
     return ClassificationResult(industries=industries, confidence=confidence, rationale=rationale)
 
 
