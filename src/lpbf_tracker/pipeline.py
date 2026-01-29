@@ -8,7 +8,7 @@ import yaml
 
 from lpbf_tracker.classification import keyword_classify, llm_classify
 from lpbf_tracker.config import Config
-from lpbf_tracker.enrichment import enrich_contacts
+from lpbf_tracker.enrichment import ContactInfo, enrich_contacts
 from lpbf_tracker.location import extract_location
 from lpbf_tracker.search import build_provider, build_queries
 from lpbf_tracker.storage import CompanyRecord, canonical_domain, load_crm, save_crm, upsert_record
@@ -33,8 +33,13 @@ def run_pipeline(config: Config) -> None:
     crm_path = Path(settings["project"]["output_excel"])
     df = load_crm(crm_path)
     user_agent = settings["project"]["user_agent"]
+    
     contact_settings = settings["contact_enrichment"]
     save_every_query = settings["project"].get("save_every_query", False)
+
+    # In-run cache to avoid re-crawling the same domain multiple times.
+    contact_cache: dict[str, ContactInfo] = {}
+
 
     queries = list(build_queries(settings))
     total_queries = len(queries)
@@ -80,16 +85,23 @@ def run_pipeline(config: Config) -> None:
 
             city, province = extract_location(combined_text)
             homepage = to_homepage(result.url)
-            contact_info = None
+
+            contact_info: ContactInfo | None = None
             if contact_settings.get("enabled", True):
-                logging.info("Enriching contacts for %s", homepage)
-                contact_info = enrich_contacts(
-                    base_url=homepage,
-                    user_agent=user_agent,
-                    contact_keywords=contact_settings["contact_page_keywords"],
-                    max_pages=contact_settings["max_pages_per_company"],
-                )
-                logging.info("Enrichment complete for %s", homepage)
+                cache_key = domain  # domain is guaranteed non-empty here
+                if cache_key in contact_cache:
+                    logging.info("Contact enrichment cache hit for %s", cache_key)
+                    contact_info = contact_cache[cache_key]
+                else:
+                    logging.info("Enriching contacts for %s", homepage)
+                    contact_info = enrich_contacts(
+                        base_url=homepage,
+                        user_agent=user_agent,
+                        contact_keywords=contact_settings["contact_page_keywords"],
+                        max_pages=contact_settings["max_pages_per_company"],
+                    )
+                    contact_cache[cache_key] = contact_info
+                    logging.info("Enrichment complete for %s", homepage)
             else:
                 logging.info("Skipping contact enrichment for %s", homepage)
 
