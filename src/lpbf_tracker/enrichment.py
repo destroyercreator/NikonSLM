@@ -2,28 +2,19 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
+
 import requests
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from bs4 import BeautifulSoup
 
+from lpbf_tracker.cache import ContactCache, ContactInfo
 
 EMAIL_REGEX = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 PHONE_REGEX = re.compile(r"\+?\d?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
-
-
-@dataclass
-class ContactInfo:
-    emails: list[str]
-    phones: list[str]
-    contact_page: str | None
-    staff: list[str]
-    company_name: str | None
-    company_address: str | None
 
 
 def is_allowed_by_robots(url: str, user_agent: str) -> bool:
@@ -61,18 +52,15 @@ def should_skip_rate_limit(response: requests.Response) -> bool:
 
 
 def fetch_page(session: requests.Session, url: str) -> str:
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        try:
-            response = session.get(url, timeout=(10, 30))
-        except requests.RequestException:
-            return ""
-        if should_skip_rate_limit(response):
-            return ""
-        if not response.ok:
-            return ""
-        return response.text
-    return ""
+    try:
+        response = session.get(url, timeout=(10, 30))
+    except requests.RequestException:
+        return ""
+    if should_skip_rate_limit(response):
+        return ""
+    if not response.ok:
+        return ""
+    return response.text
 
 
 def extract_contacts(html: str) -> tuple[list[str], list[str]]:
@@ -136,7 +124,7 @@ def find_contact_links(
 
 def extract_staff(html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
-    staff = []
+    staff: list[str] = []
     for tag in soup.find_all(["h2", "h3", "strong"]):
         text = tag.get_text(" ", strip=True)
         if 2 <= len(text.split()) <= 4:
@@ -189,8 +177,9 @@ def _iter_jsonld_nodes(data: object) -> Iterable[dict]:
 
 def extract_identity(html: str) -> tuple[str | None, str | None]:
     soup = BeautifulSoup(html, "html.parser")
-    company_name = None
-    company_address = None
+    company_name: str | None = None
+    company_address: str | None = None
+
     scripts = soup.find_all("script", type="application/ld+json")
     for script in scripts:
         raw = script.string or script.get_text(strip=True)
@@ -200,6 +189,7 @@ def extract_identity(html: str) -> tuple[str | None, str | None]:
             data = json.loads(raw)
         except json.JSONDecodeError:
             continue
+
         for node in _iter_jsonld_nodes(data):
             node_type = node.get("@type")
             if isinstance(node_type, list):
@@ -208,16 +198,21 @@ def extract_identity(html: str) -> tuple[str | None, str | None]:
                 types = {str(node_type)}
             else:
                 types = set()
+
             if not types.intersection({"Organization", "LocalBusiness"}):
                 continue
+
             if not company_name:
                 name = node.get("name")
                 if isinstance(name, str) and name.strip():
                     company_name = name.strip()
+
             if not company_address:
                 company_address = _normalize_address(node.get("address"))
+
             if company_name and company_address:
                 break
+
         if company_name and company_address:
             break
 
@@ -234,9 +229,19 @@ def enrich_contacts(
     user_agent: str,
     contact_keywords: list[str],
     max_pages: int,
+    cache: ContactCache | None = None,
+    domain: str | None = None,
 ) -> ContactInfo:
+    cache_domain = domain or urlparse(base_url).netloc
+
+    if cache and cache_domain:
+        cached = cache.get(cache_domain)
+        if cached:
+            return cached
+
+    # Robots gate (cache negative result too)
     if not is_allowed_by_robots(base_url, user_agent):
-        return ContactInfo(
+        result = ContactInfo(
             emails=[],
             phones=[],
             contact_page=None,
@@ -244,10 +249,14 @@ def enrich_contacts(
             company_name=None,
             company_address=None,
         )
+        if cache and cache_domain:
+            cache.set(cache_domain, result)
+        return result
+
     session = build_session(user_agent)
     homepage_html = fetch_page(session, base_url)
     if not homepage_html:
-        return ContactInfo(
+        result = ContactInfo(
             emails=[],
             phones=[],
             contact_page=None,
@@ -255,11 +264,17 @@ def enrich_contacts(
             company_name=None,
             company_address=None,
         )
+        if cache and cache_domain:
+            cache.set(cache_domain, result)
+        return result
+
     company_name, company_address = extract_identity(homepage_html)
     emails, phones = extract_contacts(homepage_html)
+
     combined_keywords = sorted(
         {keyword.lower() for keyword in contact_keywords} | set(PRIORITY_CONTACT_KEYWORDS)
     )
+
     contact_links = find_contact_links(
         homepage_html,
         base_url,
@@ -267,24 +282,31 @@ def enrich_contacts(
         max_results=max(0, max_pages - 1),
     )
     contact_page = contact_links[0] if contact_links else None
-    staff = []
+
+    staff: list[str] = []
     pages_checked = 1
+
     for contact_link in contact_links:
         if pages_checked >= max_pages:
             break
         if not is_allowed_by_robots(contact_link, user_agent):
             continue
+
         contact_html = fetch_page(session, contact_link)
         pages_checked += 1
         if not contact_html:
             continue
+
         more_emails, more_phones = extract_contacts(contact_html)
         emails = sorted(set(emails + more_emails))
         phones = sorted(set(phones + more_phones))
         staff = sorted(set(staff + extract_staff(contact_html)))
+
+        # Stop early once we have at least some usable contact info.
         if len(emails) + len(phones) >= 2:
             break
-    return ContactInfo(
+
+    result = ContactInfo(
         emails=emails,
         phones=phones,
         contact_page=contact_page,
@@ -292,3 +314,8 @@ def enrich_contacts(
         company_name=company_name,
         company_address=company_address,
     )
+
+    if cache and cache_domain:
+        cache.set(cache_domain, result)
+
+    return result

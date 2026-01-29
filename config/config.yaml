@@ -59,6 +59,8 @@ classification:
 contact_enrichment:
   enabled: false
   max_pages_per_company: 3
+  cache_dir: "data/contact_cache"
+  cache_ttl_hours: 24
   contact_page_keywords:
     - "contact"
     - "about"

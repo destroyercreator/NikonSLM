@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
 import yaml
 
+from lpbf_tracker.cache import ContactCache
 from lpbf_tracker.classification import keyword_classify, llm_classify
 from lpbf_tracker.config import Config
 from lpbf_tracker.enrichment import ContactInfo, enrich_contacts
@@ -33,6 +35,11 @@ def to_homepage(url: str) -> str:
     return url
 
 
+def _companyrecord_supports_address() -> bool:
+    fields = getattr(CompanyRecord, "__dataclass_fields__", None)
+    return bool(fields and "address" in fields)
+
+
 def run_pipeline(config: Config) -> None:
     settings = config.raw
 
@@ -47,27 +54,29 @@ def run_pipeline(config: Config) -> None:
     contact_settings = settings["contact_enrichment"]
     save_every_query = settings["project"].get("save_every_query", False)
 
-    # In-run cache to avoid re-crawling the same domain multiple times.
-    contact_cache: dict[str, ContactInfo] = {}
+    # Persistent contact cache (optional)
+    persistent_cache: ContactCache | None = None
+    if contact_settings.get("enabled", True):
+        cache_dir = Path(contact_settings.get("cache_dir", "data/contact_cache"))
+        cache_ttl_hours = float(contact_settings.get("cache_ttl_hours", 24))
+        persistent_cache = ContactCache(cache_dir, timedelta(hours=cache_ttl_hours))
 
     queries = list(build_queries(settings))
     total_queries = len(queries)
     logging.info("Starting pipeline with %d queries.", total_queries)
 
-    # Keep only the best candidate per domain before enrichment/upsert.
     best_by_domain: dict[str, dict[str, object]] = {}
 
     for query_index, query in enumerate(queries, start=1):
         logging.info("Running query %d/%d: %s", query_index, total_queries, query)
         results = provider.search(query, settings["project"]["max_results_per_query"])
-        total_results = len(results)
-        logging.info("Query %d returned %d results.", query_index, total_results)
+        logging.info("Query %d returned %d results.", query_index, len(results))
 
         for result_index, result in enumerate(results, start=1):
             logging.info(
                 "Processing result %d/%d for query %d: %s",
                 result_index,
-                total_results,
+                len(results),
                 query_index,
                 result.title,
             )
@@ -118,7 +127,7 @@ def run_pipeline(config: Config) -> None:
                         confidence,
                     )
 
-            min_conf = settings["classification"]["min_confidence"]
+            min_conf = float(settings["classification"]["min_confidence"])
             if confidence < min_conf:
                 logging.info(
                     "Skipping %s due to confidence %.2f below threshold %.2f.",
@@ -147,7 +156,6 @@ def run_pipeline(config: Config) -> None:
             if existing is None:
                 best_by_domain[domain] = candidate
             else:
-                # Primary: higher confidence. Secondary: longer evidence snippet.
                 if float(candidate["confidence"]) > float(existing["confidence"]):
                     best_by_domain[domain] = candidate
                 elif float(candidate["confidence"]) == float(existing["confidence"]):
@@ -168,35 +176,28 @@ def run_pipeline(config: Config) -> None:
 
         contact_info: ContactInfo | None = None
         if contact_settings.get("enabled", True):
-            if domain in contact_cache:
-                logging.info("Contact enrichment cache hit for %s", domain)
-                contact_info = contact_cache[domain]
-            else:
-                contact_keywords = contact_settings.get(
-                    "contact_page_keywords", ["contact", "about", "team"]
-                )
-                max_pages = int(contact_settings.get("max_pages_per_company", 5))
+            contact_keywords = contact_settings.get("contact_page_keywords", ["contact", "about", "team"])
+            max_pages = int(contact_settings.get("max_pages_per_company", 5))
 
-                logging.info("Enriching contacts for %s", homepage)
-                contact_info = enrich_contacts(
-                    base_url=homepage,
-                    user_agent=user_agent,
-                    contact_keywords=contact_keywords,
-                    max_pages=max_pages,
-                )
-                contact_cache[domain] = contact_info
-                logging.info("Enrichment complete for %s", homepage)
+            logging.info("Enriching contacts for %s", homepage)
+            contact_info = enrich_contacts(
+                base_url=homepage,
+                user_agent=user_agent,
+                contact_keywords=contact_keywords,
+                max_pages=max_pages,
+                cache=persistent_cache,
+                domain=domain,
+            )
+            logging.info("Enrichment complete for %s", homepage)
         else:
             logging.info("Skipping contact enrichment for %s", homepage)
 
-        # Prefer company name extracted from the company site (if available).
         company_name = str(candidate["name"])
         company_address = None
         if contact_info is not None:
-            extracted_name = getattr(contact_info, "company_name", None)
-            if isinstance(extracted_name, str) and extracted_name.strip():
-                company_name = extracted_name.strip()
-            company_address = getattr(contact_info, "company_address", None)
+            if contact_info.company_name and contact_info.company_name.strip():
+                company_name = contact_info.company_name.strip()
+            company_address = contact_info.company_address
 
         record_kwargs = dict(
             name=company_name,
@@ -215,8 +216,7 @@ def run_pipeline(config: Config) -> None:
             staff=contact_info.staff if contact_info else [],
         )
 
-        # Only include address if the CompanyRecord supports it.
-        if company_address is not None:
+        if company_address is not None and _companyrecord_supports_address():
             record_kwargs["address"] = company_address
 
         record = CompanyRecord(**record_kwargs)
