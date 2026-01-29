@@ -16,6 +16,7 @@ class CompanyRecord:
     domain: str
     city: str | None
     province: str | None
+    address: str | None
     industries: list[str]
     confidence: float
     rationale: str
@@ -98,6 +99,7 @@ def upsert_record(
         "domain": record.domain,
         "city": record.city,
         "province": record.province,
+        "address": record.address,
         "industries": ", ".join(record.industries),
         "classification_confidence": record.confidence,
         "classification_rationale": record.rationale,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Iterable
@@ -21,6 +22,8 @@ class ContactInfo:
     phones: list[str]
     contact_page: str | None
     staff: list[str]
+    company_name: str | None
+    company_address: str | None
 
 
 def is_allowed_by_robots(url: str, user_agent: str) -> bool:
@@ -101,6 +104,91 @@ def extract_staff(html: str) -> list[str]:
     return sorted(set(staff))
 
 
+def _clean_title(title: str) -> str:
+    cleaned = " ".join(title.split()).strip()
+    if not cleaned:
+        return ""
+    separators = [" | ", " - ", " – ", " — ", " :: "]
+    for separator in separators:
+        if separator in cleaned:
+            cleaned = cleaned.split(separator, 1)[0].strip()
+    if cleaned.lower() in {"home", "homepage"}:
+        return ""
+    return cleaned
+
+
+def _normalize_address(address: object) -> str | None:
+    if isinstance(address, str):
+        cleaned = " ".join(address.split()).strip()
+        return cleaned or None
+    if not isinstance(address, dict):
+        return None
+    parts = [
+        address.get("streetAddress"),
+        address.get("addressLocality"),
+        address.get("addressRegion"),
+        address.get("postalCode"),
+        address.get("addressCountry"),
+    ]
+    cleaned_parts = [str(part).strip() for part in parts if part]
+    return ", ".join(cleaned_parts) if cleaned_parts else None
+
+
+def _iter_jsonld_nodes(data: object) -> Iterable[dict]:
+    if isinstance(data, list):
+        for item in data:
+            yield from _iter_jsonld_nodes(item)
+    elif isinstance(data, dict):
+        if "@graph" in data and isinstance(data["@graph"], list):
+            for item in data["@graph"]:
+                if isinstance(item, dict):
+                    yield item
+        else:
+            yield data
+
+
+def extract_identity(html: str) -> tuple[str | None, str | None]:
+    soup = BeautifulSoup(html, "html.parser")
+    company_name = None
+    company_address = None
+    scripts = soup.find_all("script", type="application/ld+json")
+    for script in scripts:
+        raw = script.string or script.get_text(strip=True)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        for node in _iter_jsonld_nodes(data):
+            node_type = node.get("@type")
+            if isinstance(node_type, list):
+                types = {str(entry) for entry in node_type}
+            elif node_type:
+                types = {str(node_type)}
+            else:
+                types = set()
+            if not types.intersection({"Organization", "LocalBusiness"}):
+                continue
+            if not company_name:
+                name = node.get("name")
+                if isinstance(name, str) and name.strip():
+                    company_name = name.strip()
+            if not company_address:
+                company_address = _normalize_address(node.get("address"))
+            if company_name and company_address:
+                break
+        if company_name and company_address:
+            break
+
+    if not company_name:
+        title_tag = soup.title.string if soup.title else ""
+        cleaned = _clean_title(title_tag or "")
+        company_name = cleaned or None
+
+    return company_name, company_address
+
+
 def enrich_contacts(
     base_url: str,
     user_agent: str,
@@ -108,11 +196,26 @@ def enrich_contacts(
     max_pages: int,
 ) -> ContactInfo:
     if not is_allowed_by_robots(base_url, user_agent):
-        return ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
+        return ContactInfo(
+            emails=[],
+            phones=[],
+            contact_page=None,
+            staff=[],
+            company_name=None,
+            company_address=None,
+        )
     session = build_session(user_agent)
     homepage_html = fetch_page(session, base_url)
     if not homepage_html:
-        return ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
+        return ContactInfo(
+            emails=[],
+            phones=[],
+            contact_page=None,
+            staff=[],
+            company_name=None,
+            company_address=None,
+        )
+    company_name, company_address = extract_identity(homepage_html)
     emails, phones = extract_contacts(homepage_html)
     contact_links = find_contact_links(homepage_html, base_url, contact_keywords)
     contact_page = contact_links[0] if contact_links else None
@@ -131,4 +234,6 @@ def enrich_contacts(
         phones=phones,
         contact_page=contact_page,
         staff=staff,
+        company_name=company_name,
+        company_address=company_address,
     )

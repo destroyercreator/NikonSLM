@@ -88,7 +88,6 @@ def run_pipeline(config: Config) -> None:
             if llm_settings.get("use_llm"):
                 llm_reasons: list[str] = []
 
-                # Reasons to invoke LLM:
                 if not industries:
                     llm_reasons.append("no keyword industries")
                 if len(industries) > 1:
@@ -118,7 +117,6 @@ def run_pipeline(config: Config) -> None:
                         result.url,
                         confidence,
                     )
-
 
             min_conf = settings["classification"]["min_confidence"]
             if confidence < min_conf:
@@ -191,8 +189,17 @@ def run_pipeline(config: Config) -> None:
         else:
             logging.info("Skipping contact enrichment for %s", homepage)
 
-        record = CompanyRecord(
-            name=str(candidate["name"]),
+        # Prefer company name extracted from the company site (if available).
+        company_name = str(candidate["name"])
+        company_address = None
+        if contact_info is not None:
+            extracted_name = getattr(contact_info, "company_name", None)
+            if isinstance(extracted_name, str) and extracted_name.strip():
+                company_name = extracted_name.strip()
+            company_address = getattr(contact_info, "company_address", None)
+
+        record_kwargs = dict(
+            name=company_name,
             website=homepage,
             domain=domain,
             city=str(candidate["city"]),
@@ -207,6 +214,12 @@ def run_pipeline(config: Config) -> None:
             contact_page=contact_info.contact_page if contact_info else None,
             staff=contact_info.staff if contact_info else [],
         )
+
+        # Only include address if the CompanyRecord supports it.
+        if company_address is not None:
+            record_kwargs["address"] = company_address
+
+        record = CompanyRecord(**record_kwargs)
 
         df = upsert_record(
             df,
