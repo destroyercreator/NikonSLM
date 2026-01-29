@@ -33,8 +33,13 @@ def run_pipeline(config: Config) -> None:
     crm_path = Path(settings["project"]["output_excel"])
     df = load_crm(crm_path)
     user_agent = settings["project"]["user_agent"]
+    
     contact_settings = settings["contact_enrichment"]
+    save_every_query = settings["project"].get("save_every_query", False)
+
+    # In-run cache to avoid re-crawling the same domain multiple times.
     contact_cache: dict[str, ContactInfo] = {}
+
 
     queries = list(build_queries(settings))
     total_queries = len(queries)
@@ -80,24 +85,29 @@ def run_pipeline(config: Config) -> None:
 
             city, province = extract_location(combined_text)
             homepage = to_homepage(result.url)
-            cache_key = domain or homepage
-            if cache_key in contact_cache:
-                logging.info("Contact enrichment cache hit for %s", cache_key)
-                contact_info = contact_cache[cache_key]
+
+            contact_info: ContactInfo | None = None
+            if contact_settings.get("enabled", True):
+                cache_key = domain  # domain is guaranteed non-empty here
+                if cache_key in contact_cache:
+                    logging.info("Contact enrichment cache hit for %s", cache_key)
+                    contact_info = contact_cache[cache_key]
+                else:
+                    logging.info("Enriching contacts for %s", homepage)
+                    contact_info = enrich_contacts(
+                        base_url=homepage,
+                        user_agent=user_agent,
+                        contact_keywords=contact_settings["contact_page_keywords"],
+                        max_pages=contact_settings["max_pages_per_company"],
+                    )
+                    contact_cache[cache_key] = contact_info
+                    logging.info("Enrichment complete for %s", homepage)
             else:
-                logging.info("Enriching contacts for %s", homepage)
-                contact_info = enrich_contacts(
-                    base_url=homepage,
-                    user_agent=user_agent,
-                    contact_keywords=contact_settings["contact_page_keywords"],
-                    max_pages=contact_settings["max_pages_per_company"],
-                )
-                contact_cache[cache_key] = contact_info
-                logging.info("Enrichment complete for %s", homepage)
+                logging.info("Skipping contact enrichment for %s", homepage)
 
             record = CompanyRecord(
                 name=result.title,
-                website=result.url,
+                website=homepage,
                 domain=domain,
                 city=city,
                 province=province,
@@ -106,12 +116,16 @@ def run_pipeline(config: Config) -> None:
                 rationale=rationale,
                 evidence_snippet=result.snippet,
                 source_url=result.url,
-                contact_emails=contact_info.emails,
-                contact_phones=contact_info.phones,
-                contact_page=contact_info.contact_page,
-                staff=contact_info.staff,
+                contact_emails=contact_info.emails if contact_info else [],
+                contact_phones=contact_info.phones if contact_info else [],
+                contact_page=contact_info.contact_page if contact_info else None,
+                staff=contact_info.staff if contact_info else [],
             )
             df = upsert_record(df, record, settings["crm"]["fuzzy_match_threshold"])
+
+        if save_every_query:
+            logging.info("Saving intermediate CRM output to %s", crm_path)
+            save_crm(df, crm_path)
 
     logging.info("Saving CRM output to %s", crm_path)
     save_crm(df, crm_path)
