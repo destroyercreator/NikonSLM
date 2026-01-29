@@ -26,12 +26,14 @@ class ContactInfo:
 def is_allowed_by_robots(url: str, user_agent: str) -> bool:
     parsed = urlparse(url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    parser = RobotFileParser()
-    parser.set_url(robots_url)
     try:
-        parser.read()
+        response = requests.get(robots_url, timeout=(5, 10))
     except requests.RequestException:
         return True
+    if not response.ok:
+        return True
+    parser = RobotFileParser()
+    parser.parse(response.text.splitlines())
     return parser.can_fetch(user_agent, url)
 
 
