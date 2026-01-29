@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
 import yaml
 
 from lpbf_tracker.classification import keyword_classify, llm_classify
+from lpbf_tracker.cache import ContactCache
 from lpbf_tracker.config import Config
 from lpbf_tracker.enrichment import enrich_contacts
 from lpbf_tracker.location import extract_location
@@ -34,6 +36,9 @@ def run_pipeline(config: Config) -> None:
     df = load_crm(crm_path)
     user_agent = settings["project"]["user_agent"]
     contact_settings = settings["contact_enrichment"]
+    cache_dir = Path(contact_settings.get("cache_dir", "data/contact_cache"))
+    cache_ttl_hours = contact_settings.get("cache_ttl_hours", 24)
+    contact_cache = ContactCache(cache_dir, timedelta(hours=cache_ttl_hours))
 
     queries = list(build_queries(settings))
     total_queries = len(queries)
@@ -85,6 +90,8 @@ def run_pipeline(config: Config) -> None:
                 user_agent=user_agent,
                 contact_keywords=contact_settings["contact_page_keywords"],
                 max_pages=contact_settings["max_pages_per_company"],
+                cache=contact_cache,
+                domain=domain,
             )
             logging.info("Enrichment complete for %s", homepage)
 

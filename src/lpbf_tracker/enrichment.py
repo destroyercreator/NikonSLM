@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -10,17 +9,11 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 
+from lpbf_tracker.cache import ContactCache, ContactInfo
+
 
 EMAIL_REGEX = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 PHONE_REGEX = re.compile(r"\+?\d?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
-
-
-@dataclass
-class ContactInfo:
-    emails: list[str]
-    phones: list[str]
-    contact_page: str | None
-    staff: list[str]
 
 
 def is_allowed_by_robots(url: str, user_agent: str) -> bool:
@@ -106,13 +99,26 @@ def enrich_contacts(
     user_agent: str,
     contact_keywords: list[str],
     max_pages: int,
+    cache: ContactCache | None = None,
+    domain: str | None = None,
 ) -> ContactInfo:
+    cache_domain = domain or urlparse(base_url).netloc
+    if cache and cache_domain:
+        cached = cache.get(cache_domain)
+        if cached:
+            return cached
     if not is_allowed_by_robots(base_url, user_agent):
-        return ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
+        result = ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
+        if cache and cache_domain:
+            cache.set(cache_domain, result)
+        return result
     session = build_session(user_agent)
     homepage_html = fetch_page(session, base_url)
     if not homepage_html:
-        return ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
+        result = ContactInfo(emails=[], phones=[], contact_page=None, staff=[])
+        if cache and cache_domain:
+            cache.set(cache_domain, result)
+        return result
     emails, phones = extract_contacts(homepage_html)
     contact_links = find_contact_links(homepage_html, base_url, contact_keywords)
     contact_page = contact_links[0] if contact_links else None
@@ -126,9 +132,12 @@ def enrich_contacts(
                 emails = sorted(set(emails + more_emails))
                 phones = sorted(set(phones + more_phones))
                 staff = extract_staff(contact_html)
-    return ContactInfo(
+    result = ContactInfo(
         emails=emails,
         phones=phones,
         contact_page=contact_page,
         staff=staff,
     )
+    if cache and cache_domain:
+        cache.set(cache_domain, result)
+    return result
