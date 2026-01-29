@@ -2,11 +2,22 @@ project:
   country: Canada
   default_language: en
   output_excel: data/companies.xlsx
-  max_results_per_query: 10
+  max_results_per_query: 25
+  save_every_query: true
   user_agent: "LPBF-Tracker/0.1 (+https://example.com)"
 
 search:
   provider: "serpapi" # options: serpapi, bing, brave
+  negative_keywords:
+    serpapi:
+      - jobs
+      - careers
+    bing:
+      - jobs
+      - careers
+    brave:
+      - jobs
+      - careers
   serpapi:
     api_key_env: "SERPAPI_API_KEY"
     engine: "google"
@@ -18,6 +29,21 @@ search:
     endpoint: "https://api.search.brave.com/res/v1/web/search"
 
 queries:
+  max_queries: null
+  shuffle_seed: null
+  rotate_daily: false
+  inject_provinces: false
+  provinces:
+    - Alberta
+    - British Columbia
+    - Manitoba
+    - New Brunswick
+    - Newfoundland and Labrador
+    - Nova Scotia
+    - Ontario
+    - Prince Edward Island
+    - Quebec
+    - Saskatchewan
   base_templates:
     - "{industry} Canada manufacturer {application}"
     - "{industry} Canada company {application}"
@@ -45,6 +71,8 @@ queries:
 
 classification:
   min_confidence: 0.5
+  min_llm_conf: 0.4
+  max_llm_conf: 0.7
   keyword_rules_path: "config/industry_keywords.yaml"
   use_llm: false
   llm:
@@ -54,7 +82,10 @@ classification:
     max_tokens: 200
 
 contact_enrichment:
+  enabled: false
   max_pages_per_company: 3
+  cache_dir: "data/contact_cache"
+  cache_ttl_hours: 24
   contact_page_keywords:
     - "contact"
     - "about"
