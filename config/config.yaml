@@ -2,7 +2,8 @@ project:
   country: Canada
   default_language: en
   output_excel: data/companies.xlsx
-  max_results_per_query: 10
+  max_results_per_query: 25
+  save_every_query: true
   user_agent: "LPBF-Tracker/0.1 (+https://example.com)"
 
 search:
@@ -45,6 +46,8 @@ queries:
 
 classification:
   min_confidence: 0.5
+  min_llm_conf: 0.4
+  max_llm_conf: 0.7
   keyword_rules_path: "config/industry_keywords.yaml"
   use_llm: false
   llm:
@@ -54,6 +57,7 @@ classification:
     max_tokens: 200
 
 contact_enrichment:
+  enabled: false
   max_pages_per_company: 3
   cache_dir: "data/contact_cache"
   cache_ttl_hours: 24
