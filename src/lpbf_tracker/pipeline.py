@@ -95,7 +95,7 @@ def run_pipeline(config: Config) -> None:
 
             record = CompanyRecord(
                 name=result.title,
-                website=result.url,
+                website=homepage,
                 domain=domain,
                 city=city,
                 province=province,
