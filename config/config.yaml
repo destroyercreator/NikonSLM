@@ -45,6 +45,8 @@ queries:
 
 classification:
   min_confidence: 0.5
+  min_llm_conf: 0.4
+  max_llm_conf: 0.7
   keyword_rules_path: "config/industry_keywords.yaml"
   use_llm: false
   llm:

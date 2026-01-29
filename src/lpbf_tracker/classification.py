@@ -24,7 +24,10 @@ def keyword_classify(text: str, keyword_rules: dict) -> ClassificationResult:
                 break
     industries = sorted(set(hits))
     confidence = min(1.0, 0.4 + 0.1 * len(industries)) if industries else 0.0
-    rationale = "Keyword match" if industries else "No keyword match"
+    if industries:
+        rationale = f"Keyword match for {len(industries)} industr{'y' if len(industries) == 1 else 'ies'}"
+    else:
+        rationale = "No keyword match"
     return ClassificationResult(industries=industries, confidence=confidence, rationale=rationale)
 
 

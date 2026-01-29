@@ -61,12 +61,36 @@ def run_pipeline(config: Config) -> None:
             industries = keyword_result.industries
             confidence = keyword_result.confidence
             rationale = keyword_result.rationale
-            if settings["classification"].get("use_llm"):
+            llm_reasons = []
+            llm_settings = settings["classification"]
+            if not industries:
+                llm_reasons.append("no keyword industries")
+            if len(industries) > 1:
+                llm_reasons.append("keyword ambiguity")
+            min_llm_conf = llm_settings.get("min_llm_conf", 0.0)
+            max_llm_conf = llm_settings.get("max_llm_conf", 1.0)
+            if min_llm_conf <= confidence <= max_llm_conf:
+                llm_reasons.append(
+                    f"keyword confidence {confidence:.2f} within [{min_llm_conf:.2f}, {max_llm_conf:.2f}]"
+                )
+
+            if llm_settings.get("use_llm") and llm_reasons:
+                logging.info(
+                    "Invoking LLM classification for %s because %s.",
+                    result.url,
+                    "; ".join(llm_reasons),
+                )
                 llm_result = llm_classify(combined_text, settings["classification"])
                 if llm_result.confidence >= confidence:
                     industries = llm_result.industries
                     confidence = llm_result.confidence
                     rationale = llm_result.rationale
+            elif llm_settings.get("use_llm"):
+                logging.info(
+                    "Skipping LLM classification for %s because keyword confidence %.2f is decisive.",
+                    result.url,
+                    confidence,
+                )
 
             if confidence < settings["classification"]["min_confidence"]:
                 logging.info(
