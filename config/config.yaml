@@ -8,6 +8,16 @@ project:
 
 search:
   provider: "serpapi" # options: serpapi, bing, brave
+  negative_keywords:
+    serpapi:
+      - jobs
+      - careers
+    bing:
+      - jobs
+      - careers
+    brave:
+      - jobs
+      - careers
   serpapi:
     api_key_env: "SERPAPI_API_KEY"
     engine: "google"
@@ -19,6 +29,21 @@ search:
     endpoint: "https://api.search.brave.com/res/v1/web/search"
 
 queries:
+  max_queries: null
+  shuffle_seed: null
+  rotate_daily: false
+  inject_provinces: false
+  provinces:
+    - Alberta
+    - British Columbia
+    - Manitoba
+    - New Brunswick
+    - Newfoundland and Labrador
+    - Nova Scotia
+    - Ontario
+    - Prince Edward Island
+    - Quebec
+    - Saskatchewan
   base_templates:
     - "{industry} Canada manufacturer {application}"
     - "{industry} Canada company {application}"
