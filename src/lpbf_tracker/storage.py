@@ -142,4 +142,8 @@ def upsert_record(
 
 def save_crm(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if not df.empty:
+        sort_cols = [col for col in ["industries", "company_name"] if col in df.columns]
+        if sort_cols:
+            df = df.sort_values(by=sort_cols, kind="mergesort").reset_index(drop=True)
     df.to_excel(path, index=False)
