@@ -1,0 +1,2 @@
+[console_scripts]
+lpbf-tracker = lpbf_tracker.cli:main

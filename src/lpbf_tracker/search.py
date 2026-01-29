@@ -7,7 +7,7 @@ from typing import Iterable
 import os
 import random
 import requests
-
+import time
 
 @dataclass
 class SearchResult:
@@ -98,28 +98,98 @@ class BingProvider(SearchProvider):
 
 
 class BraveProvider(SearchProvider):
-    def __init__(self, api_key: str, endpoint: str, negative_keywords: Iterable[str] | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        endpoint: str,
+        negative_keywords: Iterable[str] | None = None,
+        *,
+        min_interval_s: float = 1.05,   # Free plan is 1 rps; use a bit of slack
+        max_retries: int = 6,
+    ) -> None:
         super().__init__(negative_keywords=negative_keywords)
         self.api_key = api_key
         self.endpoint = endpoint
+        self.min_interval_s = float(min_interval_s)
+        self.max_retries = int(max_retries)
+        self._last_request_ts = 0.0
 
-    def search(self, query: str, max_results: int) -> list[SearchResult]:
-        query = self._apply_negative_keywords(query)
-        response = requests.get(
+    def _throttle(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._last_request_ts
+        if elapsed < self.min_interval_s:
+            time.sleep(self.min_interval_s - elapsed)
+        self._last_request_ts = time.monotonic()
+
+    def _request_once(self, query: str, max_results: int) -> requests.Response:
+        count = max(1, min(int(max_results), 20))
+        self._throttle()
+        return requests.get(
             self.endpoint,
-            headers={"X-Subscription-Token": self.api_key},
-            params={"q": query, "count": max_results},
+            headers={
+                "X-Subscription-Token": self.api_key,
+                "Accept": "application/json",
+            },
+            params={"q": query, "count": count},
             timeout=30,
         )
-        response.raise_for_status()
+
+    def _request_with_retries(self, query: str, max_results: int) -> requests.Response:
+        backoff = 1.0
+        for attempt in range(self.max_retries + 1):
+            resp = self._request_once(query, max_results)
+
+            # Success
+            if resp.ok:
+                return resp
+
+            # 429: respect Retry-After if provided; otherwise exponential backoff + jitter
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        sleep_s = max(1.0, float(retry_after))
+                    except ValueError:
+                        sleep_s = backoff
+                else:
+                    # add small jitter to avoid sync issues
+                    sleep_s = backoff + random.uniform(0.0, 0.25)
+                time.sleep(sleep_s)
+                backoff = min(backoff * 2.0, 30.0)
+                continue
+
+            # Transient server errors: retry
+            if resp.status_code in (500, 502, 503, 504):
+                time.sleep(backoff + random.uniform(0.0, 0.25))
+                backoff = min(backoff * 2.0, 30.0)
+                continue
+
+            # Anything else: hard fail
+            raise RuntimeError(
+                f"Brave search failed: {resp.status_code} {resp.reason}. Body: {resp.text}"
+            )
+
+        # If we exhaust retries:
+        raise RuntimeError(
+            f"Brave search failed after retries (likely rate-limited). Last response: {resp.status_code} {resp.reason}. Body: {resp.text}"
+        )
+
+    def search(self, query: str, max_results: int) -> list[SearchResult]:
+        q1 = self._apply_negative_keywords(query)
+        response = self._request_with_retries(q1, max_results)
+
+        # If Brave rejects query syntax, retry once without negative terms.
+        if response.status_code == 422:
+            response = self._request_with_retries(query, max_results)
+
         payload = response.json()
-        results = []
-        for item in payload.get("web", {}).get("results", []):
+        results: list[SearchResult] = []
+        for item in payload.get("web", {}).get("results", []) or []:
             results.append(
                 SearchResult(
-                    title=item.get("title", ""),
-                    snippet=item.get("description", ""),
-                    url=item.get("url", ""),
+                    title=item.get("title", "") or "",
+                    snippet=item.get("description", "") or "",
+                    url=item.get("url", "") or "",
                 )
             )
         return results

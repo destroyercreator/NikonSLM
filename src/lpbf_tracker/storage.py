@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import tldextract
 from rapidfuzz import fuzz, process
@@ -14,9 +16,8 @@ class CompanyRecord:
     name: str
     website: str
     domain: str
-    city: str | None
-    province: str | None
-    address: str | None
+    city: str
+    province: str
     industries: list[str]
     confidence: float
     rationale: str
@@ -26,6 +27,7 @@ class CompanyRecord:
     contact_phones: list[str]
     contact_page: str | None
     staff: list[str]
+    address: Optional[str] = None
 
 
 @dataclass
@@ -85,6 +87,39 @@ def match_existing(
             return index.name_indices[match[2]]
     return None
 
+def _coerce_value_for_column(df: pd.DataFrame, key: str, value):
+    """
+    Prevent dtype errors when writing into columns read from Excel.
+    - If a column is numeric and we're trying to write '' / None, write NaN instead.
+    - If a column is numeric and we're trying to write a non-numeric string, upcast column to object.
+    """
+    if key not in df.columns:
+        return value
+
+    series = df[key]
+    dtype = series.dtype
+
+    # Treat empty string as missing
+    if value == "":
+        if pd.api.types.is_numeric_dtype(dtype):
+            return np.nan
+        return value
+
+    # None -> missing for numeric columns
+    if value is None:
+        if pd.api.types.is_numeric_dtype(dtype):
+            return np.nan
+        return None
+
+    # If numeric column but value is non-numeric string, upcast column to object
+    if pd.api.types.is_numeric_dtype(dtype) and isinstance(value, str):
+        try:
+            float(value)
+        except ValueError:
+            df[key] = df[key].astype("object")
+            return value
+
+    return value
 
 def upsert_record(
     df: pd.DataFrame,
@@ -126,6 +161,7 @@ def upsert_record(
             index.name_indices.append(new_idx)
     else:
         for key, value in row.items():
+            value = _coerce_value_for_column(df, key, value)
             df.at[existing_idx, key] = value
         if pd.isna(df.at[existing_idx, "first_seen"]):
             df.at[existing_idx, "first_seen"] = now
