@@ -38,6 +38,7 @@ def run_pipeline(config: Config) -> None:
     queries = list(build_queries(settings))
     total_queries = len(queries)
     logging.info("Starting pipeline with %d queries.", total_queries)
+    best_by_domain: dict[str, dict[str, object]] = {}
 
     for query_index, query in enumerate(queries, start=1):
         logging.info("Running query %d/%d: %s", query_index, total_queries, query)
@@ -78,33 +79,50 @@ def run_pipeline(config: Config) -> None:
                 continue
 
             city, province = extract_location(combined_text)
-            homepage = to_homepage(result.url)
-            logging.info("Enriching contacts for %s", homepage)
-            contact_info = enrich_contacts(
-                base_url=homepage,
-                user_agent=user_agent,
-                contact_keywords=contact_settings["contact_page_keywords"],
-                max_pages=contact_settings["max_pages_per_company"],
-            )
-            logging.info("Enrichment complete for %s", homepage)
+            candidate = {
+                "name": result.title,
+                "website": result.url,
+                "domain": domain,
+                "city": city,
+                "province": province,
+                "industries": industries,
+                "confidence": confidence,
+                "rationale": rationale,
+                "evidence_snippet": result.snippet,
+                "source_url": result.url,
+            }
+            existing = best_by_domain.get(domain)
+            if existing is None or confidence > existing["confidence"]:
+                best_by_domain[domain] = candidate
 
-            record = CompanyRecord(
-                name=result.title,
-                website=result.url,
-                domain=domain,
-                city=city,
-                province=province,
-                industries=industries,
-                confidence=confidence,
-                rationale=rationale,
-                evidence_snippet=result.snippet,
-                source_url=result.url,
-                contact_emails=contact_info.emails,
-                contact_phones=contact_info.phones,
-                contact_page=contact_info.contact_page,
-                staff=contact_info.staff,
-            )
-            df = upsert_record(df, record, settings["crm"]["fuzzy_match_threshold"])
+    logging.info("Enriching %d unique domains.", len(best_by_domain))
+    for domain, candidate in best_by_domain.items():
+        homepage = to_homepage(candidate["website"])
+        logging.info("Enriching contacts for %s", homepage)
+        contact_info = enrich_contacts(
+            base_url=homepage,
+            user_agent=user_agent,
+            contact_keywords=contact_settings["contact_page_keywords"],
+            max_pages=contact_settings["max_pages_per_company"],
+        )
+        logging.info("Enrichment complete for %s", homepage)
+        record = CompanyRecord(
+            name=candidate["name"],
+            website=candidate["website"],
+            domain=domain,
+            city=candidate["city"],
+            province=candidate["province"],
+            industries=candidate["industries"],
+            confidence=candidate["confidence"],
+            rationale=candidate["rationale"],
+            evidence_snippet=candidate["evidence_snippet"],
+            source_url=candidate["source_url"],
+            contact_emails=contact_info.emails,
+            contact_phones=contact_info.phones,
+            contact_page=contact_info.contact_page,
+            staff=contact_info.staff,
+        )
+        df = upsert_record(df, record, settings["crm"]["fuzzy_match_threshold"])
 
     logging.info("Saving CRM output to %s", crm_path)
     save_crm(df, crm_path)
