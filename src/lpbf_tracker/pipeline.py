@@ -89,7 +89,7 @@ def run_pipeline(config: Config) -> None:
             logging.info("Enrichment complete for %s", homepage)
 
             record = CompanyRecord(
-                name=result.title,
+                name=contact_info.company_name or result.title,
                 website=result.url,
                 domain=domain,
                 city=city,
@@ -103,6 +103,7 @@ def run_pipeline(config: Config) -> None:
                 contact_phones=contact_info.phones,
                 contact_page=contact_info.contact_page,
                 staff=contact_info.staff,
+                address=contact_info.company_address,
             )
             df = upsert_record(df, record, settings["crm"]["fuzzy_match_threshold"])
 
