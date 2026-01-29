@@ -83,15 +83,55 @@ def extract_contacts(html: str) -> tuple[list[str], list[str]]:
     return emails, normalized_phones
 
 
-def find_contact_links(html: str, base_url: str, keywords: Iterable[str]) -> list[str]:
+PRIORITY_CONTACT_KEYWORDS = (
+    "contact",
+    "about",
+    "team",
+    "staff",
+    "people",
+    "leadership",
+    "directory",
+)
+
+
+def score_contact_link(text: str, href: str, keywords: Iterable[str]) -> int:
+    haystack = f"{text} {href}"
+    score = 0
+    for weight, keyword in enumerate(PRIORITY_CONTACT_KEYWORDS, start=1):
+        if keyword in haystack:
+            score = max(score, len(PRIORITY_CONTACT_KEYWORDS) - weight + 1)
+    if any(keyword in haystack for keyword in keywords):
+        score += 1
+    return score
+
+
+def find_contact_links(
+    html: str,
+    base_url: str,
+    keywords: Iterable[str],
+    max_results: int,
+) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
-    links = []
-    for anchor in soup.find_all("a", href=True):
+    candidates: list[tuple[int, int, str]] = []
+    for index, anchor in enumerate(soup.find_all("a", href=True)):
         text = anchor.get_text(" ", strip=True).lower()
-        href = anchor["href"]
-        if any(keyword in text for keyword in keywords):
-            links.append(urljoin(base_url, href))
-    return list(dict.fromkeys(links))
+        href = anchor["href"].strip().lower()
+        if not href or href.startswith("#"):
+            continue
+        score = score_contact_link(text, href, keywords)
+        if score:
+            candidates.append((score, index, urljoin(base_url, anchor["href"])))
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    links: list[str] = []
+    seen = set()
+    for _, _, link in candidates:
+        if link in seen:
+            continue
+        seen.add(link)
+        links.append(link)
+        if len(links) >= max_results:
+            break
+    return links
 
 
 def extract_staff(html: str) -> list[str]:
@@ -217,18 +257,33 @@ def enrich_contacts(
         )
     company_name, company_address = extract_identity(homepage_html)
     emails, phones = extract_contacts(homepage_html)
-    contact_links = find_contact_links(homepage_html, base_url, contact_keywords)
+    combined_keywords = sorted(
+        {keyword.lower() for keyword in contact_keywords} | set(PRIORITY_CONTACT_KEYWORDS)
+    )
+    contact_links = find_contact_links(
+        homepage_html,
+        base_url,
+        combined_keywords,
+        max_results=max(0, max_pages - 1),
+    )
     contact_page = contact_links[0] if contact_links else None
     staff = []
     pages_checked = 1
-    if contact_page and pages_checked < max_pages:
-        if is_allowed_by_robots(contact_page, user_agent):
-            contact_html = fetch_page(session, contact_page)
-            if contact_html:
-                more_emails, more_phones = extract_contacts(contact_html)
-                emails = sorted(set(emails + more_emails))
-                phones = sorted(set(phones + more_phones))
-                staff = extract_staff(contact_html)
+    for contact_link in contact_links:
+        if pages_checked >= max_pages:
+            break
+        if not is_allowed_by_robots(contact_link, user_agent):
+            continue
+        contact_html = fetch_page(session, contact_link)
+        pages_checked += 1
+        if not contact_html:
+            continue
+        more_emails, more_phones = extract_contacts(contact_html)
+        emails = sorted(set(emails + more_emails))
+        phones = sorted(set(phones + more_phones))
+        staff = sorted(set(staff + extract_staff(contact_html)))
+        if len(emails) + len(phones) >= 2:
+            break
     return ContactInfo(
         emails=emails,
         phones=phones,
