@@ -19,21 +19,28 @@ class SearchResult:
 class SearchProvider:
     def __init__(self, negative_keywords: Iterable[str] | None = None) -> None:
         self.negative_keywords = [keyword.strip() for keyword in negative_keywords or [] if keyword.strip()]
+        self.negative_operator = "-"
 
     def search(self, query: str, max_results: int) -> list[SearchResult]:
         raise NotImplementedError
+
+    def _format_negative_keyword(self, keyword: str) -> str:
+        if self.negative_operator == "-" and keyword.startswith("-"):
+            return keyword
+        if self.negative_operator.upper() == "NOT" and keyword.upper().startswith("NOT "):
+            return keyword
+        if " " in keyword and not (keyword.startswith('"') and keyword.endswith('"')):
+            keyword = f'"{keyword}"'
+        if self.negative_operator.upper() == "NOT":
+            return f"NOT {keyword}"
+        return f"{self.negative_operator}{keyword}"
 
     def _apply_negative_keywords(self, query: str) -> str:
         if not self.negative_keywords:
             return query
         formatted_keywords: list[str] = []
         for keyword in self.negative_keywords:
-            if keyword.startswith("-"):
-                formatted_keywords.append(keyword)
-                continue
-            if " " in keyword and not (keyword.startswith('"') and keyword.endswith('"')):
-                keyword = f'"{keyword}"'
-            formatted_keywords.append(f"-{keyword}")
+            formatted_keywords.append(self._format_negative_keyword(keyword))
         return f"{query} {' '.join(formatted_keywords)}"
 
 
@@ -74,6 +81,7 @@ class BingProvider(SearchProvider):
         super().__init__(negative_keywords=negative_keywords)
         self.api_key = api_key
         self.endpoint = endpoint
+        self.negative_operator = "NOT"
 
     def search(self, query: str, max_results: int) -> list[SearchResult]:
         query = self._apply_negative_keywords(query)
