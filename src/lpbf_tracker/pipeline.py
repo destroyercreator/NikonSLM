@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import logging
 import re
+from collections import Counter
 from dataclasses import fields as dataclass_fields
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -254,8 +255,10 @@ def _append_run_log(settings: dict, row: dict) -> None:
                 "inserted",
                 "updated",
                 "skipped_confidence",
-                "skipped_non_company",
-                "skipped_low_fit",
+                "skipped_excluded_domain",
+                "skipped_content_type",
+                "skipped_low_company_likelihood",
+                "skipped_low_lpbf_fit",
                 "contact_cache_hits",
                 "contact_cache_misses",
                 "contact_cache_hit_rate",
@@ -398,13 +401,16 @@ def run_pipeline(config: Config) -> None:
     total_results = 0
     domains_seen: set[str] = set()
     skipped_confidence = 0
-    skipped_non_company = 0
-    skipped_low_fit = 0
+    skipped_excluded_domain = 0
+    skipped_content_type = 0
+    skipped_low_company_likelihood = 0
+    skipped_low_lpbf_fit = 0
     enriched_count = 0
     inserted_count = 0
     updated_count = 0
     contact_cache_hits = 0
     contact_cache_misses = 0
+    excluded_domain_counts: Counter[str] = Counter()
 
     logging.info("Starting pipeline with %d queries.", total_queries)
 
@@ -445,12 +451,13 @@ def run_pipeline(config: Config) -> None:
 
             if is_excluded_domain(domain):
                 logging.info("Skipping excluded domain: %s", domain)
-                skipped_non_company += 1
+                skipped_excluded_domain += 1
+                excluded_domain_counts[domain] += 1
                 continue
 
             if is_excluded_url(url):
                 logging.info("Skipping excluded URL pattern: %s", url)
-                skipped_non_company += 1
+                skipped_content_type += 1
                 continue
 
             domains_seen.add(domain)
@@ -459,12 +466,12 @@ def run_pipeline(config: Config) -> None:
 
             if company_likelihood_score(combined_text, domain, url) < 1:
                 logging.info("Low company-likelihood score, skipping %s (%s)", domain, url)
-                skipped_non_company += 1
+                skipped_low_company_likelihood += 1
                 continue
 
             if lpbf_fit_score(combined_text) < 1:
                 logging.info("Low LPBF-fit score, skipping %s (%s)", domain, url)
-                skipped_low_fit += 1
+                skipped_low_lpbf_fit += 1
                 continue
 
             if content_likelihood_score(combined_text) >= content_reject_threshold:
@@ -473,7 +480,7 @@ def run_pipeline(config: Config) -> None:
                     domain,
                     url,
                 )
-                skipped_non_company += 1
+                skipped_content_type += 1
                 continue
 
             # Classification (keyword first, LLM optionally)
@@ -657,7 +664,8 @@ def run_pipeline(config: Config) -> None:
 
     logging.info(
         "Run summary: queries=%d results=%d domains_seen=%d unique_candidates=%d enriched=%d inserted=%d updated=%d "
-        "skipped_confidence=%d skipped_non_company=%d skipped_low_fit=%d contact_cache_hit_rate=%.1f%%",
+        "skipped_confidence=%d skipped_excluded_domain=%d skipped_content_type=%d "
+        "skipped_low_company_likelihood=%d skipped_low_lpbf_fit=%d contact_cache_hit_rate=%.1f%%",
         total_queries,
         total_results,
         len(domains_seen),
@@ -666,10 +674,18 @@ def run_pipeline(config: Config) -> None:
         inserted_count,
         updated_count,
         skipped_confidence,
-        skipped_non_company,
-        skipped_low_fit,
+        skipped_excluded_domain,
+        skipped_content_type,
+        skipped_low_company_likelihood,
+        skipped_low_lpbf_fit,
         cache_hit_rate * 100,
     )
+
+    if excluded_domain_counts:
+        top_excluded = ", ".join(
+            f"{domain} ({count})" for domain, count in excluded_domain_counts.most_common(10)
+        )
+        logging.info("Top excluded domains: %s", top_excluded)
 
     _append_run_log(
         settings,
@@ -683,8 +699,10 @@ def run_pipeline(config: Config) -> None:
             "inserted": inserted_count,
             "updated": updated_count,
             "skipped_confidence": skipped_confidence,
-            "skipped_non_company": skipped_non_company,
-            "skipped_low_fit": skipped_low_fit,
+            "skipped_excluded_domain": skipped_excluded_domain,
+            "skipped_content_type": skipped_content_type,
+            "skipped_low_company_likelihood": skipped_low_company_likelihood,
+            "skipped_low_lpbf_fit": skipped_low_lpbf_fit,
             "contact_cache_hits": contact_cache_hits,
             "contact_cache_misses": contact_cache_misses,
             "contact_cache_hit_rate": round(cache_hit_rate, 4),
