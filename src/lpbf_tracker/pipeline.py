@@ -253,6 +253,17 @@ def is_excluded_domain(domain: str) -> bool:
     if d in _EXCLUDED_DOMAINS:
         return True
 
+    hard_block_substrings = (
+        "reddit",
+        "stackexchange",
+        "quora",
+        "wikipedia",
+        "medium",
+        "substack",
+    )
+    if any(term in d for term in hard_block_substrings):
+        return True
+
     for tld in _EXCLUDED_TLDS:
         if d.endswith(tld):
             return True
