@@ -2,12 +2,14 @@ project:
   country: Canada
   default_language: en
   output_excel: data/companies.xlsx
-  max_results_per_query: 25
+  max_results_per_query: 10
   save_every_query: true
   user_agent: "LPBF-Tracker/0.1 (+https://example.com)"
 
 search:
   provider: "brave" # options: serpapi, bing, brave
+  max_results_per_query_overrides:
+    brave: 8
   negative_keywords:
     serpapi:
       - reddit

@@ -371,7 +371,9 @@ def content_likelihood_score(text: str) -> int:
 def run_pipeline(config: Config) -> None:
     settings = config.raw
 
-    provider = build_provider(settings["search"])
+    search_settings = settings["search"]
+    provider_name = search_settings.get("provider", "serpapi")
+    provider = build_provider(search_settings)
     keyword_rules = load_keyword_rules(Path(settings["classification"]["keyword_rules_path"]))
 
     crm_path = Path(settings["project"]["output_excel"])
@@ -410,6 +412,9 @@ def run_pipeline(config: Config) -> None:
     best_by_domain: dict[str, dict[str, object]] = {}
 
     max_results = int(settings["project"]["max_results_per_query"])
+    max_results_overrides = search_settings.get("max_results_per_query_overrides", {})
+    if provider_name in max_results_overrides:
+        max_results = int(max_results_overrides[provider_name])
     min_conf = float(settings["classification"]["min_confidence"])
     content_reject_threshold = 2
 
