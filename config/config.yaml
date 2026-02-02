@@ -45,20 +45,20 @@ queries:
     - Quebec
     - Saskatchewan
   base_templates:
-    - "{industry} Canada manufacturer {application}"
-    - "{industry} Canada company {application}"
-    - "{industry} Canada supplier {application}"
+    - "{industry} {application} manufacturer OEM supplier facility production ISO AS9100 contact about Canada"
+    - "{industry} {application} company manufacturer OEM supplier facility production ISO AS9100 contact about Canada"
+    - "{industry} {application} supplier OEM manufacturer facility production ISO AS9100 contact about Canada"
   industries:
-    - aerospace
-    - defence
-    - medical
-    - energy
-    - industrial tooling
-    - semiconductor vacuum
-    - chemical processing
-    - robotics
-    - architecture design
-    - high performance manufacturing
+    - aerospace components
+    - defense components
+    - medical devices
+    - energy equipment
+    - industrial tooling components
+    - semiconductor vacuum components
+    - chemical processing equipment
+    - robotics components
+    - architectural components
+    - high performance components
   applications:
     - "complex internal geometries"
     - "heat exchanger"

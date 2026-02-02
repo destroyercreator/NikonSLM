@@ -233,6 +233,7 @@ def build_provider(settings: dict) -> SearchProvider:
 
 def build_queries(config: dict) -> Iterable[str]:
     queries_config = config["queries"]
+    provider = config.get("search", {}).get("provider", "")
     base_templates = queries_config["base_templates"]
     industries = queries_config["industries"]
     applications = queries_config["applications"]
@@ -242,21 +243,26 @@ def build_queries(config: dict) -> Iterable[str]:
     shuffle_seed = queries_config.get("shuffle_seed")
     rotate_daily = queries_config.get("rotate_daily", False)
     queries: list[str] = []
+    brave_short_mode = str(provider).lower() == "brave"
 
     for industry in industries:
         for application in applications:
             for template in base_templates:
                 if inject_provinces and provinces:
                     for province in provinces:
-                        queries.append(
-                            _render_template(
-                                template, industry=industry, application=application, province=province
-                            )
+                        query = _render_template(
+                            template, industry=industry, application=application, province=province
                         )
+                        if brave_short_mode:
+                            query = _truncate_query_terms(query, max_terms=7)
+                        queries.append(query)
                 else:
-                    queries.append(
-                        _render_template(template, industry=industry, application=application, province=None)
+                    query = _render_template(
+                        template, industry=industry, application=application, province=None
                     )
+                    if brave_short_mode:
+                        query = _truncate_query_terms(query, max_terms=7)
+                    queries.append(query)
 
     if shuffle_seed is not None:
         random.Random(shuffle_seed).shuffle(queries)
@@ -270,6 +276,13 @@ def build_queries(config: dict) -> Iterable[str]:
         queries = queries[:max_queries]
 
     return queries
+
+
+def _truncate_query_terms(query: str, *, max_terms: int) -> str:
+    terms = query.split()
+    if len(terms) <= max_terms:
+        return query
+    return " ".join(terms[:max_terms])
 
 
 def _render_template(
