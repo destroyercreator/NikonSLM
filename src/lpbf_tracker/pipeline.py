@@ -177,6 +177,14 @@ def to_homepage(url: str) -> str:
     return url
 
 
+def url_path_depth(url: str) -> int:
+    parsed = urlparse(url)
+    path = (parsed.path or "/").strip("/")
+    if not path:
+        return 0
+    return len([segment for segment in path.split("/") if segment])
+
+
 def _companyrecord_fields() -> set[str]:
     # Works for dataclasses and pydantic-like models that expose __fields__/model_fields
     try:
@@ -423,6 +431,7 @@ def run_pipeline(config: Config) -> None:
             url = getattr(result, "url", "") or ""
             title = getattr(result, "title", "") or ""
             snippet = getattr(result, "snippet", "") or ""
+            depth = url_path_depth(url)
 
             domain = canonical_domain(url)
             if not domain:
@@ -508,6 +517,9 @@ def run_pipeline(config: Config) -> None:
                 skipped_confidence += 1
                 continue
 
+            url_depth_penalty = 1.0 if depth <= 1 else 0.8
+            selection_score = confidence * url_depth_penalty
+
             city, province = extract_location(combined_text)
             homepage = to_homepage(url)
 
@@ -521,18 +533,26 @@ def run_pipeline(config: Config) -> None:
                 "rationale": rationale or "",
                 "evidence_snippet": snippet or "",
                 "source_url": url,
+                "url_depth": depth,
+                "url_depth_penalty": url_depth_penalty,
+                "selection_score": selection_score,
             }
 
             existing = best_by_domain.get(domain)
             if existing is None:
                 best_by_domain[domain] = candidate
             else:
-                # Primary: higher confidence. Secondary: longer evidence snippet.
-                if float(candidate["confidence"]) > float(existing["confidence"]):
+                # Primary: higher selection score. Secondary: lower path depth. Tertiary: longer evidence snippet.
+                if float(candidate["selection_score"]) > float(existing["selection_score"]):
                     best_by_domain[domain] = candidate
-                elif float(candidate["confidence"]) == float(existing["confidence"]):
-                    if len(str(candidate.get("evidence_snippet", ""))) > len(str(existing.get("evidence_snippet", ""))):
+                elif float(candidate["selection_score"]) == float(existing["selection_score"]):
+                    if int(candidate["url_depth"]) < int(existing["url_depth"]):
                         best_by_domain[domain] = candidate
+                    elif int(candidate["url_depth"]) == int(existing["url_depth"]):
+                        if len(str(candidate.get("evidence_snippet", ""))) > len(
+                            str(existing.get("evidence_snippet", ""))
+                        ):
+                            best_by_domain[domain] = candidate
 
         if save_every_query:
             # If you truly want intermediate saves, do it here (but it tends to create noise since we're best-by-domain).
