@@ -151,6 +151,19 @@ _END_MARKET_TERMS = (
     "manifold",
 )
 
+_CONTENT_LIKELIHOOD_MARKERS = (
+    "thread",
+    "comments",
+    "upvotes",
+    "posted by",
+    "subscribe",
+    "press release",
+    "news",
+    "blog",
+    "article",
+    "forum",
+)
+
 
 def load_keyword_rules(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
@@ -338,6 +351,15 @@ def lpbf_fit_score(text: str) -> int:
     return score
 
 
+def content_likelihood_score(text: str) -> int:
+    """
+    Score intended to detect content-language markers (news/blog/forum).
+    Return value: integer score; >= threshold means reject.
+    """
+    t = (text or "").lower()
+    return sum(1 for marker in _CONTENT_LIKELIHOOD_MARKERS if marker in t)
+
+
 def run_pipeline(config: Config) -> None:
     settings = config.raw
 
@@ -381,6 +403,7 @@ def run_pipeline(config: Config) -> None:
 
     max_results = int(settings["project"]["max_results_per_query"])
     min_conf = float(settings["classification"]["min_confidence"])
+    content_reject_threshold = 2
 
     for query_index, query in enumerate(queries, start=1):
         logging.info("Running query %d/%d: %s", query_index, total_queries, query)
@@ -428,6 +451,15 @@ def run_pipeline(config: Config) -> None:
             if lpbf_fit_score(combined_text) < 1:
                 logging.info("Low LPBF-fit score, skipping %s (%s)", domain, url)
                 skipped_low_fit += 1
+                continue
+
+            if content_likelihood_score(combined_text) >= content_reject_threshold:
+                logging.info(
+                    "Content-language markers detected, skipping %s (%s).",
+                    domain,
+                    url,
+                )
+                skipped_non_company += 1
                 continue
 
             # Classification (keyword first, LLM optionally)
