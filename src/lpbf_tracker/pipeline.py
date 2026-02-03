@@ -74,6 +74,18 @@ _EXCLUDED_PATH_PATTERNS = (
     r"/wiki/",            # wiki
 )
 
+# URL path prefixes that are often content hubs; treat as soft penalties.
+_KNOWN_BAD_PATH_PREFIXES = (
+    "/blog",
+    "/news",
+    "/press",
+    "/article",
+    "/forum",
+    "/community",
+    "/wiki",
+    "/docs",
+)
+
 # Non-company / community signals (snippet/title)
 _NON_COMPANY_TERMS = (
     "reddit",
@@ -308,6 +320,16 @@ def is_excluded_url(url: str) -> bool:
     return False
 
 
+def is_known_bad_path(url: str) -> bool:
+    try:
+        path = urlparse(url).path or ""
+    except Exception:
+        return False
+
+    p = path.lower()
+    return any(p.startswith(prefix) for prefix in _KNOWN_BAD_PATH_PREFIXES)
+
+
 def _norm_text(*parts: str) -> str:
     s = " ".join([p for p in parts if p])
     s = re.sub(r"\s+", " ", s).strip().lower()
@@ -330,6 +352,8 @@ def company_likelihood_score(text: str, domain: str, url: str) -> int:
     # Penalties
     if any(term in t for term in _NON_COMPANY_TERMS):
         score -= 3
+    if is_known_bad_path(url):
+        score -= 1
 
     # Rewards
     if any(term in t for term in _COMPANY_SITE_TERMS):
@@ -530,7 +554,8 @@ def run_pipeline(config: Config) -> None:
                 continue
 
             url_depth_penalty = 1.0 if depth <= 1 else 0.8
-            selection_score = confidence * url_depth_penalty
+            path_penalty = 0.9 if is_known_bad_path(url) else 1.0
+            selection_score = confidence * url_depth_penalty * path_penalty
 
             city, province = extract_location(combined_text)
             homepage = to_homepage(url)
@@ -547,6 +572,7 @@ def run_pipeline(config: Config) -> None:
                 "source_url": url,
                 "url_depth": depth,
                 "url_depth_penalty": url_depth_penalty,
+                "path_penalty": path_penalty,
                 "selection_score": selection_score,
             }
 
